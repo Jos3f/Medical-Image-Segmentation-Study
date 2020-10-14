@@ -226,7 +226,7 @@ class FCM:
             if np.any(checkv):
                 continue
             else:
-                print('csFCM done after', counter, 'iterations!')
+                # print('csFCM done after', counter, 'iterations!')
                 # Output:
                 #   w: joint cluster centers
                 #   z: weighted membership per pixel
