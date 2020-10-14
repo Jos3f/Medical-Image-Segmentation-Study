@@ -1,6 +1,7 @@
 import numpy as np
 from numpy.linalg import norm
 from skimage.filters import threshold_otsu
+from pathos.multiprocessing import Pool
 
 class FCM:
     """
@@ -88,7 +89,9 @@ class FCM:
         A list of tuples (w, z), one for each image. w is the final cluster 
         centers, z are the fuzzy, weighted membership values for each pixel.
         """
-        return [self.__csFCM(image) for image in self.__images]
+        pool = Pool()
+        return pool.map(self.__csFCM, self.__images)
+        #return [self.__csFCM(image) for image in self.__images]
 
     def binary_segmentation(self):
         """
@@ -223,7 +226,7 @@ class FCM:
             if np.any(checkv):
                 continue
             else:
-                # print('csFCM done after', counter, 'iterations!')
+                print('csFCM done after', counter, 'iterations!')
                 # Output:
                 #   w: joint cluster centers
                 #   z: weighted membership per pixel

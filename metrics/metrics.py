@@ -1,6 +1,7 @@
 import numpy as np
 import sklearn.metrics
 import random
+from pathos.multiprocessing import Pool
 from skimage import measure
 from scipy.ndimage.morphology import distance_transform_edt
 import timeit
@@ -113,11 +114,13 @@ class Metrics:
         )
 
     def __apply_metric_on_all_images(self, metric_function):
-        return [
-            metric_function(x, y) 
-            for (x, y) 
-            in zip(self.true_labels, self.inferred_labels)
-        ]
+        pool = Pool()
+        return pool.starmap(metric_function, zip(self.true_labels, self.inferred_labels))
+        # return [
+        #     metric_function(x, y) 
+        #     for (x, y) 
+        #     in zip(self.true_labels, self.inferred_labels)
+        # ]
 
     def __dice_for_image(self, true_mask, inferred_mask):
         return sklearn.metrics.f1_score(true_mask.reshape(-1), inferred_mask.reshape(-1))
