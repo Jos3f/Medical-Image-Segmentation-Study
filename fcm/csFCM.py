@@ -79,6 +79,7 @@ class FCM:
         self.__q = q
         self.__epsilon = epislon
         self.__window_size = window_size
+        self.__div_correction = 1e-20
 
     def cluster(self):
         """
@@ -178,9 +179,17 @@ class FCM:
                     for i in range(self.__num_clusters)
             ]
 
+            common_denominator = [
+                # Add some small correction to avoid zero-division 
+                # where a pixel corresponds to the cluster center
+                (center_distances[i] / sum(center_distances)) + self.__div_correction
+                for i in range(self.__num_clusters)
+            ]
+            
+
             # Calculate membership value using cluster centers
             for i in range(self.__num_clusters):
-                mu[i] = 1 / (center_distances[i] / sum(center_distances))
+                mu[i] = 1 / common_denominator[i]
 
             # Determine f for each pixel
             for i in range(self.__num_clusters):
@@ -193,7 +202,7 @@ class FCM:
 
             # Calculate conditional spatial membership value using cluster centers
             for i in range(self.__num_clusters):
-                u[i] = f[i] / (center_distances[i] / sum(center_distances))
+                u[i] = f[i] / common_denominator[i]
 
             # Calculate weighted membership value
             for i in range(self.__num_clusters):
