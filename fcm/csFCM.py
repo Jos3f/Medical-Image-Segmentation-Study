@@ -96,17 +96,35 @@ class FCM:
 
     def binary_segmentation(self):
         """
-        Perform clustering on each image. 
+        Perform (fuzzy) clustering on each image.  
 
         Returns
         -------
-        A list of binary segmentations, one for each image.
+        A list of binary segmentations, one for each image. Each pixel is 
+        chosen to belong to the cluster with the highest membership value.
         """
         clusterings = self.cluster()
         # Turn the pixels in low-intensity clusters to 0 and pixels in high-intensity 
         # cluster to 1
         segmentations = [
             self.__binary_segmentation_from_cluster_output(w, z)
+            for (w, z) in clusterings
+        ]
+        return segmentations
+
+    def fuzzy_segmentation(self):
+        """
+        Perform (fuzzy) clustering on each image.
+
+        Returns
+        -------
+        A list of fuzzy segmentations, one for each image. Each pixel is given 
+        a value between 1 and 0 corresponding to how much that pixel belongs to 
+        the cluster with the highest intensity center.
+        """
+        clusterings = self.cluster()
+        segmentations = [
+            self.__fuzzy_segmentation_from_cluster_output(w, z)
             for (w, z) in clusterings
         ]
         return segmentations
@@ -117,6 +135,18 @@ class FCM:
             return np.argmin(z, axis=0) 
         else:
             return np.argmax(z, axis=0) 
+
+    def __fuzzy_segmentation_from_cluster_output(self, w, z):
+        assert(w.shape[0] == 2) # With two clusters, this is fine
+        # Decide which cluster is the brightest
+        if norm(w[0] > norm(w[1])):
+            brightest = 0
+        else:
+            brightest = 1
+        
+        # Normalize
+        z = z / np.sum(z, axis=0)
+        return z[brightest]
 
     def __csFCM(self, image):
 
