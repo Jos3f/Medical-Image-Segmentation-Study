@@ -288,7 +288,7 @@ def main(start_index=0, plot=True):
             plt.show()
 
         original_images = []
-        metric_labels = []
+        metric_labels_test = []
         metric_predictions_unprocessed_test = []
         metric_predictions = []
 
@@ -299,14 +299,14 @@ def main(start_index=0, plot=True):
 
         for i, (image, label) in enumerate(dataset):
             original_images.append(image[..., -1])
-            metric_labels.append(np.argmax(label, axis=-1))
+            metric_labels_test.append(np.argmax(label, axis=-1))
             metric_predictions_unprocessed_test.append(prediction[i, ...])
 
 
         for i in range(len(metric_predictions_unprocessed_test)):
             metric_predictions.append(np.argmax(metric_predictions_unprocessed_test[i] * np.array([[[1, best_tau]]]), axis=-1))
 
-        quantitative_metrics = Metrics(metric_labels, metric_predictions)
+        quantitative_metrics = Metrics(metric_labels_test, metric_predictions)
 
         jaccard_index = quantitative_metrics.jaccard()
         dice = quantitative_metrics.dice()
@@ -329,16 +329,18 @@ def main(start_index=0, plot=True):
         if plot:
             fig, ax = plt.subplots(3, 3, sharex=True, sharey=True, figsize=(8, 8))
 
-            for i in range(len(metric_labels)):
+            for i in range(len(metric_labels_test)):
                 ax[i][0].matshow(original_images[i])
-                ax[i][1].matshow(metric_labels[i], cmap=plt.cm.gray)
+                ax[i][1].matshow(metric_labels_test[i], cmap=plt.cm.gray)
                 ax[i][2].matshow(metric_predictions[i], cmap=plt.cm.gray)
 
             plt.tight_layout()
             plt.show()
 
         np.save("results/BBBC039_val_fold_" + str(test_data_point_index) + ".npy", metric_predictions_unprocessed)
+        np.save("results/BBBC039_val_true_fold_" + str(test_data_point_index) + ".npy", metric_labels)
         np.save("results/BBBC039_test_fold_" + str(test_data_point_index) + ".npy", metric_predictions_unprocessed_test)
+        np.save("results/BBBC039_test_true_fold_" + str(test_data_point_index) + ".npy", metric_labels)
 
 
 if __name__ == '__main__':
