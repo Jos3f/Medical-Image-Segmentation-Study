@@ -116,7 +116,7 @@ def read_data():
 
     return images, masks
 
-def main(start_index=0, plot=True):
+def main(start_index=0, plot=True, store_masks=False):
     results_file = Path("results/BBBC039_LOOCV.csv")
     if not results_file.is_file():
         results_file.write_text('index; jaccard; Dice; Adj; Warp\n')
@@ -337,11 +337,12 @@ def main(start_index=0, plot=True):
             plt.tight_layout()
             plt.show()
 
-        np.save("results/BBBC039_val_fold_" + str(test_data_point_index) + ".npy", metric_predictions_unprocessed)
-        np.save("results/BBBC039_val_true_fold_" + str(test_data_point_index) + ".npy", metric_labels)
-        np.save("results/BBBC039_test_fold_" + str(test_data_point_index) + ".npy", metric_predictions_unprocessed_test)
-        np.save("results/BBBC039_test_true_fold_" + str(test_data_point_index) + ".npy", metric_labels)
+        if store_masks:
+            np.save("results/BBBC039_val_fold_" + str(test_data_point_index) + ".npy", metric_predictions_unprocessed)
+            np.save("results/BBBC039_val_true_fold_" + str(test_data_point_index) + ".npy", metric_labels)
+            np.save("results/BBBC039_test_fold_" + str(test_data_point_index) + ".npy", metric_predictions_unprocessed_test)
+            np.save("results/BBBC039_test_true_fold_" + str(test_data_point_index) + ".npy", metric_labels)
 
 
 if __name__ == '__main__':
-    main(start_index=0, plot=False)
+    main(start_index=0, plot=False, store_masks=False)
