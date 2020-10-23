@@ -126,15 +126,15 @@ class Metrics:
         return sklearn.metrics.f1_score(true_mask.reshape(-1), inferred_mask.reshape(-1))
 
     def __jaccard_for_image(self, true_mask, inferred_mask):
-        count_intersection = np.count_nonzero((inferred_mask == 1) & (true_mask == 1))
-        count_union = (
-            np.count_nonzero(inferred_mask) + 
-            np.count_nonzero(true_mask) - 
-            count_intersection
-        )
-        return count_intersection / count_union
+        # count_intersection = np.count_nonzero((inferred_mask == 1) & (true_mask == 1))
+        # count_union = (
+        #     np.count_nonzero(inferred_mask) + 
+        #     np.count_nonzero(true_mask) - 
+        #     count_intersection
+        # )
+        # return count_intersection / count_union
         # Equivalently:
-        # return sklearn.metrics.jaccard_score(true_mask.reshape(-1), inferred_mask.reshape(-1))
+        return sklearn.metrics.jaccard_score(true_mask.reshape(-1), inferred_mask.reshape(-1))
 
     # Rand score
     def __rand_for_image(self, true_mask, inferred_mask):
