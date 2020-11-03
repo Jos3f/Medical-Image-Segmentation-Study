@@ -84,7 +84,7 @@ def remove_border(predictions, desired_dim_x, desired_dim_y):
     predictions = predictions[:, border_x:(width - border_x), border_y:(height - border_y), :]
     return predictions
 
-def main(start_index=0, filename=None, plot_validation=False, plot_test=True, calculate_test_metric=False):
+def main(start_index=0, filename=None, plot_validation=False, plot_test=True, calculate_train_metric=False):
     """
 
     :param start_index:
@@ -203,7 +203,7 @@ def main(start_index=0, filename=None, plot_validation=False, plot_test=True, ca
                                       num_classes=circles.classes,
                                       layer_depth=3,
                                       filters_root=16)
-        if calculate_test_metric:
+        if calculate_train_metric:
             unet.finalize_model(unet_model)
         else:
             unet.finalize_model(unet_model, dice_coefficient=False, auc=False, mean_iou=False)
@@ -331,4 +331,4 @@ def main(start_index=0, filename=None, plot_validation=False, plot_test=True, ca
 
 
 if __name__ == '__main__':
-    main(start_index=0, filename="results/BBBC004_LOOCV_FULLRES.csv", plot_validation=False, plot_test=True, calculate_test_metric=False)
+    main(start_index=0, filename="results/BBBC004_LOOCV_FULLRES.csv", plot_validation=False, plot_test=True, calculate_train_metric=False)
