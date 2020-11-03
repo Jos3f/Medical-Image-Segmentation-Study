@@ -8,6 +8,7 @@ import glob
 import matplotlib.pyplot as plt
 import random
 from pathlib import Path
+from datetime import datetime
 
 from metrics import Metrics
 from threshold_utils import Threshold
@@ -15,6 +16,14 @@ from threshold_utils import Threshold
 import keras
 
 import tensorflow as tf
+
+# Run on CPU
+# os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+# if tf.test.gpu_device_name():
+#     print('GPU found')
+# else:
+#     print("No GPU found")
+
 from keras.backend.tensorflow_backend import set_session
 config = tf.compat.v1.ConfigProto()
 config.gpu_options.allow_growth = True  # dynamically grow the memory used on the GPU
@@ -55,14 +64,44 @@ def augment_image(input_image, input_mask):
 
     return input_image, input_mask
 
-def main(start_index=0):
-    results_file = Path("results/BBBC004_LOOCV.csv")
+
+def remove_border(predictions, desired_dim_x, desired_dim_y):
+    """
+    Remove extra border.
+    :param predictions: 4d numpy array of predictions
+    :param desired_dim_x:
+    :param desired_dim_y:
+    :return:
+    """
+    width = predictions.shape[1]
+    height = predictions.shape[2]
+    assert desired_dim_x <= width
+    assert desired_dim_y <= height
+    assert (width - desired_dim_x) % 2 == 0
+    assert (height - desired_dim_y) % 2 == 0
+    border_x = int((width - desired_dim_x) / 2)
+    border_y = int((height - desired_dim_y) / 2)
+    predictions = predictions[:, border_x:(width - border_x), border_y:(height - border_y), :]
+    return predictions
+
+def main(start_index=0, filename=None, plot_validation=False, plot_test=True, calculate_test_metric=False):
+    """
+
+    :param start_index:
+    :param filename:
+    :param plot_validation: Plots 3 samples from the validation set each fold
+    :param plot_test:  Plots the test test image for each fold
+    :return:
+    """
+    if filename is None:
+        now = datetime.now()
+        current_dt = now.strftime("%y_%m_%d_%H_%M_%S")
+        filename = "results/" + current_dt + ".csv"
+    results_file = Path(filename)
     if not results_file.is_file():
         results_file.write_text('index; jaccard; Dice; Adj; Warp\n')
 
     """ Load data """
-    image_path = "data/BBBC004_v1_images/synthetic_000_images/"
-    label_path = "data/BBBC004_v1_foreground/synthetic_000_foreground/"
     image_path = "data/BBBC004_v1_images/*/"
     label_path = "data/BBBC004_v1_foreground/*/"
 
@@ -70,7 +109,8 @@ def main(start_index=0):
 
     # inp_dim = 572
     # inp_dim = 200
-    inp_dim = 500
+    # inp_dim = 710
+    inp_dim = 950
 
 
     file_names = sorted(glob.glob(image_path + "*." + file_extension))
@@ -90,7 +130,7 @@ def main(start_index=0):
             images[-1] = tf.image.resize(images[-1], [inp_dim, inp_dim], preserve_aspect_ratio=True, method='bilinear')
             images[-1] = tf.image.rgb_to_grayscale(images[-1])
 
-        images[-1] = mirror_pad_image(images[-1])
+        images[-1] = mirror_pad_image(images[-1], pixels=21)
 
     labels = []
     for file in file_names_labels:
@@ -104,7 +144,7 @@ def main(start_index=0):
         labels[-1] = tf.image.resize(labels[-1], [inp_dim, inp_dim], preserve_aspect_ratio=True, method='bilinear')
         labels[-1] = np.where(labels[-1] > 0.5, 1, 0)
 
-        labels[-1] = mirror_pad_image(labels[-1])
+        labels[-1] = mirror_pad_image(labels[-1], pixels=21)
 
     print("num images: " + str(len(images)))
     print("num labels: " + str(len(labels)))
@@ -163,19 +203,25 @@ def main(start_index=0):
                                       num_classes=circles.classes,
                                       layer_depth=3,
                                       filters_root=16)
-        unet.finalize_model(unet_model)
+        if calculate_test_metric:
+            unet.finalize_model(unet_model)
+        else:
+            unet.finalize_model(unet_model, dice_coefficient=False, auc=False, mean_iou=False)
 
 
         """Train"""
         # callback = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True)
         # trainer = unet.Trainer(checkpoint_callback=False, callbacks=[callback])
         trainer = unet.Trainer(checkpoint_callback=False)
+        # trainer.fit(unet_model,
+        #             train_dataset,
+        #             validation_dataset,
+        #             epochs=25,
+        #             batch_size=1)
         trainer.fit(unet_model,
                     train_dataset,
-                    validation_dataset,
                     epochs=25,
                     batch_size=1)
-
 
         """Calculate best amplification"""
         prediction = unet_model.predict(validation_dataset.batch(batch_size=1))
@@ -185,7 +231,12 @@ def main(start_index=0):
         metric_predictions_unprocessed = []
         metric_predictions = []
 
-        dataset = validation_dataset.map(utils.crop_image_and_label_to_shape(prediction.shape[1:]))
+        # print("Validation shape before: ", prediction.shape)
+        # dataset = validation_dataset.map(utils.crop_image_and_label_to_shape(prediction.shape[1:]))
+        dataset = validation_dataset.map(utils.crop_image_and_label_to_shape((inp_dim, inp_dim, 2)))
+        prediction = remove_border(prediction, inp_dim, inp_dim)
+        # print("Validation shape after: ", prediction.shape)
+
 
         for i, (image, label) in enumerate(dataset):
             original_images.append(image[..., -1])
@@ -194,22 +245,23 @@ def main(start_index=0):
 
 
         threshold_util = Threshold(metric_labels)
-        best_tau, best_score = threshold_util.get_best_threshold(metric_predictions_unprocessed, min=0, max=2, num_steps=200, metric=0)
+        best_tau, best_score = threshold_util.get_best_threshold(metric_predictions_unprocessed, min=0, max=2, num_steps=200, metric=1)
         print("Best tau: " + str(best_tau))
         print("Best avg score: " + str(best_score))
 
         for i in range(len(metric_predictions_unprocessed)):
             metric_predictions.append(np.argmax(metric_predictions_unprocessed[i] * np.array([[[1, best_tau]]]), axis=-1))
 
-        fig, ax = plt.subplots(3, 3, sharex=True, sharey=True, figsize=(8, 8))
+        if plot_validation:
+            fig, ax = plt.subplots(3, 3, sharex=True, sharey=True, figsize=(8, 8))
 
-        for i in range(3):
-            ax[i][0].matshow(original_images[i])
-            ax[i][1].matshow(metric_labels[i], cmap=plt.cm.gray)
-            ax[i][2].matshow(metric_predictions[i], cmap=plt.cm.gray)
+            for i in range(3):
+                ax[i][0].matshow(original_images[i])
+                ax[i][1].matshow(metric_labels[i], cmap=plt.cm.gray)
+                ax[i][2].matshow(metric_predictions[i], cmap=plt.cm.gray)
 
-        plt.tight_layout()
-        plt.show()
+            plt.tight_layout()
+            plt.show()
 
         original_images = []
         metric_labels = []
@@ -219,7 +271,14 @@ def main(start_index=0):
 
         """Evaluate and print to file"""
         prediction = unet_model.predict(test_dataset.batch(batch_size=1))
-        dataset = test_dataset.map(utils.crop_image_and_label_to_shape(prediction.shape[1:]))
+        # print("Test shape before: ", prediction.shape)
+        # dataset = test_dataset.map(utils.crop_image_and_label_to_shape(prediction.shape[1:]))
+        dataset = test_dataset.map(utils.crop_image_and_label_to_shape((inp_dim, inp_dim, 2)))
+        prediction = remove_border(prediction, inp_dim, inp_dim)
+        print("Test shape shape: ", prediction.shape)
+
+
+
 
         for i, (image, label) in enumerate(dataset):
             original_images.append(image[..., -1])
@@ -235,7 +294,7 @@ def main(start_index=0):
         dice = quantitative_metrics.dice()
         adj = quantitative_metrics.adj_rand()
         warping_error = quantitative_metrics.warping_error()
-        #warping_error = [0.1]
+        # warping_error = [0.1]
 
         with results_file.open("a") as f:
             f.write(str(test_data_point_index) + ";" + str(jaccard_index[0]) + ";" + str(dice[0])
@@ -249,16 +308,27 @@ def main(start_index=0):
 
 
         """Plot predictions"""
-        fig, ax = plt.subplots(3, 3, sharex=True, sharey=True, figsize=(8, 8))
+        if plot_test:
+            fig, ax = plt.subplots(1, 3, figsize=(8, 4))
+            fig.suptitle("Test point: " + str(test_data_point_index), fontsize=14)
 
-        for i in range(len(metric_labels)):
-            ax[i][0].matshow(original_images[i])
-            ax[i][1].matshow(metric_labels[i], cmap=plt.cm.gray)
-            ax[i][2].matshow(metric_predictions[i], cmap=plt.cm.gray)
 
-        plt.tight_layout()
-        plt.show()
+            ax[0].matshow(original_images[i])
+            ax[0].set_title("Input data")
+            ax[0].set_axis_off()
+
+            ax[1].matshow(metric_labels[i], cmap=plt.cm.gray)
+            ax[1].set_title("True mask")
+            ax[1].set_axis_off()
+
+            ax[2].matshow(metric_predictions[i], cmap=plt.cm.gray)
+            ax[2].set_title("Predicted mask")
+            ax[2].set_axis_off()
+
+
+            fig.tight_layout()
+            plt.show()
 
 
 if __name__ == '__main__':
-    main(start_index=0)
+    main(start_index=0, filename="results/BBBC004_LOOCV_FULLRES.csv", plot_validation=False, plot_test=True, calculate_test_metric=False)
