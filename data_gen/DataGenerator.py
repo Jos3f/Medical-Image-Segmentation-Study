@@ -3,6 +3,8 @@ import numpy as np
 from PIL import Image
 import matplotlib.pyplot as plt
 from scipy.ndimage import gaussian_filter
+from skimage.draw import circle
+import math
 
 class DataGenerator:
 
@@ -21,7 +23,14 @@ class DataGenerator:
 
         self.target = np.ones((24, 24)).astype(int)
 
-    def sample_images(self, n=100, targets=300, image_dir=None, label_dir=None):
+    def sample_images(self, n=100, targets=300, bound = 0.6, ratio = 0.5, image_dir=None, label_dir=None):
+        """
+        ratio: What ratio of the added circles have low intensity and are not to included in the label
+
+        bound: the bound between the values high and low intensity
+        """
+
+
         if image_dir is not None:
             if not os.path.exists(image_dir):
                 os.makedirs(image_dir)
@@ -32,7 +41,7 @@ class DataGenerator:
         images = []
         labels = []
         for i in range(n):
-            image, label = self.sample_image(targets)
+            image, label = self.sample_image(bound,ratio,targets)
             # images.append(image)
             # labels.append(label)
             if image_dir is not None:
@@ -48,16 +57,25 @@ class DataGenerator:
 
         pass
 
-    def sample_image(self, targets=300):
+    def sample_image(self, bound, ratio, targets=300):
         generated_label = np.zeros(self.dims).astype(int)
         generated_image = np.zeros(self.dims).astype(float)
         positions = self._get_random_coordinates(targets, margin=(self.target.shape[0]))
-        for i in range(positions.shape[0]):
+        radius=10
+        for i in range(int(math.floor(targets * ratio))):
             x = positions[i][0]
             y = positions[i][1]
+            rr,cc = circle(x,y,radius,generated_label.shape)
 
-            generated_label[x:x+self.target.shape[0], y:y+self.target.shape[1]] += self.target * 255
-            generated_image[x:x+self.target.shape[0], y:y+self.target.shape[1]] += self.target * np.random.uniform(0.15, 1)
+            generated_label[rr,cc] = 255
+            generated_image[rr, cc] = np.random.uniform(bound, 1)
+
+
+        for i in range(int(math.floor(targets * ratio)),targets):
+            x = positions[i][0]
+            y = positions[i][1]
+            rr,cc = circle(x,y,radius,generated_label.shape)
+            generated_image[rr, cc] = np.random.uniform(0.15, bound)
 
         generated_label = generated_label.clip(max=255)
 
@@ -92,5 +110,5 @@ class DataGenerator:
 
 if __name__ == '__main__':
     dg = DataGenerator((1024, 1024))
-    dg.sample_image(targets=900)
-    dg.sample_images(100, targets=300, image_dir="images", label_dir="labels")
+    dg.sample_image(bound = 0.6, ratio = 0.5,targets=900)
+    dg.sample_images(100, targets=300, bound = 0.6, ratio = 0.5, image_dir="images", label_dir="labels")
