@@ -16,7 +16,7 @@ class Metrics:
         Adjusted rand index
         Warping error (Jain et al. (2010)  Boundary Learning by Optimization with Topological Constraints).
     """
-    def __init__(self, true_labels, inferred_labels):
+    def __init__(self, true_labels, inferred_labels, safe=True, parallel = True):
         """
         Constructor for the Metrics class.
 
@@ -31,24 +31,25 @@ class Metrics:
         """
 
         # Try to parse input
-        if not isinstance(true_labels, list):
-            true_labels = [true_labels]
-        
-        if not isinstance(inferred_labels, list):
-            inferred_labels = [inferred_labels]
+        if safe:
+            if not isinstance(true_labels, list):
+                true_labels = [true_labels]
+            
+            if not isinstance(inferred_labels, list):
+                inferred_labels = [inferred_labels]
 
         
-        # Assert equal number of images
-        assert(len(true_labels) == len(inferred_labels))
-        # For all pairs (true, inferred), assert the following:
-        #   1. Both have identical shape
-        #   2. Both are binary 
-        assert(all(
-            a.shape == b.shape and # 1
-            np.array_equal(a, a.astype(bool)) and # 2
-            np.array_equal(b, b.astype(bool)) # 2
-            for (a, b) in zip(true_labels, inferred_labels)
-        ))
+            # Assert equal number of images
+            assert(len(true_labels) == len(inferred_labels))
+            # For all pairs (true, inferred), assert the following:
+            #   1. Both have identical shape
+            #   2. Both are binary 
+            assert(all(
+                a.shape == b.shape and # 1
+                np.array_equal(a, a.astype(bool)) and # 2
+                np.array_equal(b, b.astype(bool)) # 2
+                for (a, b) in zip(true_labels, inferred_labels)
+            ))
 
         self.true_labels = true_labels
         self.inferred_labels = inferred_labels
@@ -56,6 +57,8 @@ class Metrics:
         ### TESTING: TODO
         self.__topological_map = None
         ### TESTING DONE
+
+        self.__parallel = parallel
 
     def jaccard(self):
         """
@@ -83,10 +86,24 @@ class Metrics:
         """
         return self.__apply_metric_on_all_images(self.__dice_for_image)
 
-    def adj_rand(self):
+    def rand(self):
         """
         Calculate the adjusted rand index of every segmentation.
         The scores are between 0 and 1. Higher values are better.
+
+        Returns
+        -------
+        A list of rand scores, one for each image. The index of the 
+        score in the list corresponds to the index of the segmentation
+        in true_labels and inferred_labels.
+        """
+        return self.__apply_metric_on_all_images(self.__rand_for_image)
+
+
+    def adj_rand(self):
+        """
+        Calculate the adjusted rand index of every segmentation.
+        The scores are between -1 and 1. Higher values are better.
 
         Returns
         -------
@@ -94,7 +111,7 @@ class Metrics:
         score in the list corresponds to the index of the segmentation
         in true_labels and inferred_labels.
         """
-        return self.__apply_metric_on_all_images(self.__rand_for_image)
+        return self.__apply_metric_on_all_images(self.__adj_rand_for_image)
 
     def warping_error(self):
         """
@@ -114,13 +131,15 @@ class Metrics:
         )
 
     def __apply_metric_on_all_images(self, metric_function):
-        pool = Pool()
-        return pool.starmap(metric_function, zip(self.true_labels, self.inferred_labels))
-        # return [
-        #     metric_function(x, y) 
-        #     for (x, y) 
-        #     in zip(self.true_labels, self.inferred_labels)
-        # ]
+        if self.__parallel:
+            pool = Pool()
+            return pool.starmap(metric_function, zip(self.true_labels, self.inferred_labels))
+        else:
+            return [
+                metric_function(x, y) 
+                for (x, y) 
+                in zip(self.true_labels, self.inferred_labels)
+            ]
 
     def __dice_for_image(self, true_mask, inferred_mask):
         return sklearn.metrics.f1_score(true_mask.reshape(-1), inferred_mask.reshape(-1))
@@ -136,8 +155,11 @@ class Metrics:
         # Equivalently:
         return sklearn.metrics.jaccard_score(true_mask.reshape(-1), inferred_mask.reshape(-1))
 
-    # Rand score
     def __rand_for_image(self, true_mask, inferred_mask):
+        return np.count_nonzero(true_mask == inferred_mask) / true_mask.size
+
+    # Adjusted Rand score
+    def __adj_rand_for_image(self, true_mask, inferred_mask):
         return sklearn.metrics.adjusted_rand_score(true_mask.reshape(-1), inferred_mask.reshape(-1))
 
     # Get all pixels within a euclidean distance of n from the background
@@ -405,7 +427,7 @@ class Metrics:
             flippable[s1, s2] = (
                 simple[s1, s2] & different[s1, s2] & mask[s1, s2]
             )
-            
+            #print("Flipppable:", np.count_nonzero(flippable))
             flips += 1
 
         different = np.logical_xor(warped_labels, inferred_labels)

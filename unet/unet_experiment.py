@@ -9,11 +9,16 @@ import matplotlib.pyplot as plt
 import random
 from pathlib import Path
 from datetime import datetime
+from multiprocessing.dummy import Pool
+import sys
 
+# The H4ck3rs solution when proper organization in modules is too daunting
+# N.b. this requires everything to be run from the Unet directory 
+sys.path.append("../metrics")
 from metrics import Metrics
-from threshold_utils import Threshold
+from threshold_utils import get_best_threshold, normalize_output
 
-import keras
+# import keras
 
 import tensorflow as tf
 
@@ -24,7 +29,7 @@ import tensorflow as tf
 # else:
 #     print("No GPU found")
 
-from keras.backend.tensorflow_backend import set_session
+# from keras.backend.tensorflow_backend import set_session
 config = tf.compat.v1.ConfigProto()
 config.gpu_options.allow_growth = True  # dynamically grow the memory used on the GPU
 config.log_device_placement = True  # to log device placement (on which device the operation ran)
@@ -40,8 +45,6 @@ def mirror_pad_image(image, pixels=20):
 
 @tf.function
 def augment_image(input_image, input_mask):
-    # input_image = datapoint[0]
-    # input_mask = datapoint[1]
 
     if tf.random.uniform(()) > 0.5:
         input_image = tf.image.flip_left_right(input_image)
@@ -84,7 +87,7 @@ def remove_border(predictions, desired_dim_x, desired_dim_y):
     predictions = predictions[:, border_x:(width - border_x), border_y:(height - border_y), :]
     return predictions
 
-def main(start_index=0, filename=None, plot_validation=False, plot_test=True, calculate_train_metric=False):
+def main(start_index=0, last_index = 99, filename=None, plot_validation=False, plot_test=True, calculate_train_metric=False):
     """
 
     :param start_index:
@@ -99,7 +102,7 @@ def main(start_index=0, filename=None, plot_validation=False, plot_test=True, ca
         filename = "results/" + current_dt + ".csv"
     results_file = Path(filename)
     if not results_file.is_file():
-        results_file.write_text('index; jaccard; Dice; Adj; Warp\n')
+        results_file.write_text('index;jaccard;Dice;Adj;Warp;jaccard_to;Dice_to;Adj_to;Warp_to\n')
 
     """ Load data """
     image_path = "data/BBBC004_v1_images/*/"
@@ -107,11 +110,7 @@ def main(start_index=0, filename=None, plot_validation=False, plot_test=True, ca
 
     file_extension = "tif"
 
-    # inp_dim = 572
-    # inp_dim = 200
-    # inp_dim = 710
     inp_dim = 950
-
 
     file_names = sorted(glob.glob(image_path + "*." + file_extension))
     file_names_labels = sorted(glob.glob(label_path + "*." + file_extension))
@@ -153,6 +152,8 @@ def main(start_index=0, filename=None, plot_validation=False, plot_test=True, ca
 
 
     for test_data_point_index in range(start_index, num_data_points):
+        if test_data_point_index > last_index:
+            break
         print("\nStarted for data_point_index: " + str(test_data_point_index))
 
         images_temp = images.copy()
@@ -206,21 +207,26 @@ def main(start_index=0, filename=None, plot_validation=False, plot_test=True, ca
         if calculate_train_metric:
             unet.finalize_model(unet_model)
         else:
-            unet.finalize_model(unet_model, dice_coefficient=False, auc=False, mean_iou=False)
+            unet.finalize_model(unet_model,
+                            dice_coefficient=False,
+                            auc=False,
+                            mean_iou=False) # Don't track so many metrics
 
 
         """Train"""
-        # callback = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True)
-        # trainer = unet.Trainer(checkpoint_callback=False, callbacks=[callback])
-        trainer = unet.Trainer(checkpoint_callback=False)
-        # trainer.fit(unet_model,
-        #             train_dataset,
-        #             validation_dataset,
-        #             epochs=25,
-        #             batch_size=1)
+        # Disable performance logging & use early stopping
+        es_callback = tf.keras.callbacks.EarlyStopping(
+            monitor='val_loss', 
+            patience=3, 
+            restore_best_weights=True)
+        trainer = unet.Trainer(checkpoint_callback=False,
+                    tensorboard_callback=False,
+                    tensorboard_images_callback=False,
+                    callbacks=[es_callback])
         trainer.fit(unet_model,
                     train_dataset,
-                    epochs=25,
+                    validation_dataset,
+                    epochs=40,
                     batch_size=1)
 
         """Calculate best amplification"""
@@ -231,26 +237,28 @@ def main(start_index=0, filename=None, plot_validation=False, plot_test=True, ca
         metric_predictions_unprocessed = []
         metric_predictions = []
 
-        # print("Validation shape before: ", prediction.shape)
-        # dataset = validation_dataset.map(utils.crop_image_and_label_to_shape(prediction.shape[1:]))
         dataset = validation_dataset.map(utils.crop_image_and_label_to_shape((inp_dim, inp_dim, 2)))
         prediction = remove_border(prediction, inp_dim, inp_dim)
-        # print("Validation shape after: ", prediction.shape)
 
 
         for i, (image, label) in enumerate(dataset):
             original_images.append(image[..., -1])
             metric_labels.append(np.argmax(label, axis=-1))
-            metric_predictions_unprocessed.append(prediction[i, ...])
+            metric_predictions_unprocessed.append(normalize_output(prediction[i, ...]))
 
 
-        threshold_util = Threshold(metric_labels)
-        best_tau, best_score = threshold_util.get_best_threshold(metric_predictions_unprocessed, min=0, max=2, num_steps=200, metric=1)
+        best_tau, best_score = get_best_threshold(
+            metric_predictions_unprocessed, 
+            metric_labels, 
+            min=0, max=1, num_steps=50, 
+            use_metric=1)
+
+        #best_tau = 0.5 # Use this to not threshold at all, also comment above
         print("Best tau: " + str(best_tau))
         print("Best avg score: " + str(best_score))
 
         for i in range(len(metric_predictions_unprocessed)):
-            metric_predictions.append(np.argmax(metric_predictions_unprocessed[i] * np.array([[[1, best_tau]]]), axis=-1))
+            metric_predictions.append((metric_predictions_unprocessed[i] >= best_tau).astype(int))
 
         if plot_validation:
             fig, ax = plt.subplots(3, 3, sharex=True, sharey=True, figsize=(8, 8))
@@ -264,47 +272,82 @@ def main(start_index=0, filename=None, plot_validation=False, plot_test=True, ca
             plt.show()
 
         original_images = []
-        metric_labels = []
-        metric_predictions_unprocessed = []
+        metric_labels_test = []
+        metric_predictions_unprocessed_test = []
         metric_predictions = []
+        metric_predictions_unthresholded = []
 
 
         """Evaluate and print to file"""
         prediction = unet_model.predict(test_dataset.batch(batch_size=1))
-        # print("Test shape before: ", prediction.shape)
-        # dataset = test_dataset.map(utils.crop_image_and_label_to_shape(prediction.shape[1:]))
         dataset = test_dataset.map(utils.crop_image_and_label_to_shape((inp_dim, inp_dim, 2)))
         prediction = remove_border(prediction, inp_dim, inp_dim)
         print("Test shape shape: ", prediction.shape)
 
 
-
-
         for i, (image, label) in enumerate(dataset):
             original_images.append(image[..., -1])
-            metric_labels.append(np.argmax(label, axis=-1))
-            metric_predictions_unprocessed.append(prediction[i, ...])
+            metric_labels_test.append(np.argmax(label, axis=-1))
+            metric_predictions_unprocessed_test.append(prediction[i, ...])
 
-        for i in range(len(metric_predictions_unprocessed)):
-            metric_predictions.append(np.argmax(metric_predictions_unprocessed[i] * np.array([[[1, best_tau]]]), axis=-1))
+        for i in range(len(metric_predictions_unprocessed_test)):
+            metric_predictions.append((normalize_output(metric_predictions_unprocessed_test[i]) >= best_tau).astype(int))
+            metric_predictions_unthresholded.append((normalize_output(metric_predictions_unprocessed_test[i]) >= 0.5).astype(int))
 
-        quantitative_metrics = Metrics(metric_labels, metric_predictions)
+        # Calculate thresholded and unthresholded metrics in parallel
+        parallel_metrics = [
+            Metrics(
+                metric_labels_test, 
+                metric_predictions_unthresholded, 
+                safe=False,
+                parallel=False),
 
-        jaccard_index = quantitative_metrics.jaccard()
-        dice = quantitative_metrics.dice()
-        adj = quantitative_metrics.adj_rand()
-        warping_error = quantitative_metrics.warping_error()
-        # warping_error = [0.1]
+            Metrics(
+                metric_labels_test, 
+                metric_predictions,
+                safe=False,
+                parallel=False)
+        ]
+
+        def f(m):
+            return (
+                m.jaccard()[0],
+                m.dice()[0],
+                m.adj_rand()[0],
+                m.warping_error()[0]
+            )
+        
+        pool = Pool(2)
+        metric_result = pool.map(f, parallel_metrics)
+        
+        jaccard_index = metric_result[0][0]
+        dice = metric_result[0][1]
+        adj = metric_result[0][2]
+        warping_error = metric_result[0][3]
+
+        jaccard_index_to = metric_result[1][0]
+        dice_to = metric_result[1][1]
+        adj_to = metric_result[1][2]
+        warping_error_to = metric_result[1][3]
 
         with results_file.open("a") as f:
-            f.write(str(test_data_point_index) + ";" + str(jaccard_index[0]) + ";" + str(dice[0])
-                    + ";" + str(adj[0]) + ";" + str(warping_error[0]) + "\n")
+            f.write(
+                str(test_data_point_index) + ";" + 
+                str(jaccard_index) + ";" + 
+                str(dice) + ";" + 
+                str(adj) + ";" + 
+                str(warping_error) + ";" +
+                str(jaccard_index_to) + ";" + 
+                str(dice_to) + ";" + 
+                str(adj_to) + ";" + 
+                str(warping_error_to) + "\n"
+            )
 
         print("test_data_point_index: " + str(test_data_point_index))
-        print("Jaccard index: " + str(jaccard_index))
-        print("Dice: " + str(dice))
-        print("Adj: " + str(adj))
-        print("Warping Error: " + str(warping_error))
+        print("Jaccard index: " + str(jaccard_index) + " with threshold optimization: " + str(jaccard_index_to))
+        print("Dice: " + str(dice) + " with threshold optimization: " + str(dice_to))
+        print("Adj: " + str(adj) + " with threshold optimization: " + str(adj_to))
+        print("Warping Error: " + str(warping_error) + " with threshold optimization: " + str(warping_error_to))
 
 
         """Plot predictions"""
@@ -331,4 +374,22 @@ def main(start_index=0, filename=None, plot_validation=False, plot_test=True, ca
 
 
 if __name__ == '__main__':
-    main(start_index=0, filename="results/BBBC004_LOOCV_FULLRES.csv", plot_validation=False, plot_test=True, calculate_train_metric=False)
+    try:
+        results_file = sys.argv[1]
+    except IndexError:
+        print("No file name given, results file will be given a name automatically")
+        results_file = None
+    try:
+        start_index = int(sys.argv[2])
+    except (IndexError, ValueError):
+        start_index=0
+    try:
+        last_index = int(sys.argv[3])
+    except (IndexError, ValueError):
+        last_index=99
+    main(   start_index=start_index, 
+            last_index=last_index, 
+            filename=results_file, 
+            plot_validation=False, 
+            plot_test=False, 
+            calculate_train_metric=False)

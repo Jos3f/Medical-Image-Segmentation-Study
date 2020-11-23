@@ -9,19 +9,22 @@ import matplotlib.pyplot as plt
 import random
 from pathlib import Path
 import re
+import sys
+from multiprocessing.dummy import Pool
 
-
+# The H4ck3rs solution when proper organization in modules is too daunting
+sys.path.append("../metrics")
 from metrics import Metrics
-from threshold_utils import Threshold
+from threshold_utils import get_best_threshold, normalize_output
 
-import keras
+#import keras
 
 import tensorflow as tf
-from keras.backend.tensorflow_backend import set_session
+#from keras.backend.tensorflow_backend import set_session
 config = tf.compat.v1.ConfigProto()
 config.gpu_options.allow_growth = True  # dynamically grow the memory used on the GPU
 config.log_device_placement = True  # to log device placement (on which device the operation ran)
-                                    # (nothing gets printed in Jupyter, only if you run it standalone)
+                                    #(nothing gets printed in Jupyter, only if you run it standalone)
 sess = tf.compat.v1.Session(config=config)
 
 """Helper functions"""
@@ -33,8 +36,6 @@ def mirror_pad_image(image, pixels=20):
 
 @tf.function
 def augment_image(input_image, input_mask):
-    # input_image = datapoint[0]
-    # input_mask = datapoint[1]
 
     if tf.random.uniform(()) > 0.5:
         input_image = tf.image.flip_left_right(input_image)
@@ -44,15 +45,6 @@ def augment_image(input_image, input_mask):
         input_image = tf.image.flip_up_down(input_image)
         input_mask = tf.image.flip_up_down(input_mask)
 
-    # randVal = tf.random.uniform(())
-    # if randVal > 0.25:
-    #     k = 1
-    #     if randVal > 0.5:
-    #         k += 1
-    #     if randVal > 0.75:
-    #         k += 1
-    #     input_image = tf.image.rot90(input_image, k=k)
-    #     input_mask = tf.image.rot90(input_mask, k=k)
 
     return input_image, input_mask
 
@@ -62,9 +54,6 @@ def split_into_classes(image):
         if np.sum(list) == 0:
             return [1, 0]
         return [0, 1]
-
-    # matrix = np.where(image != 0, 1, 0)
-    # matrix = np.apply_along_axis(one_hot, axis=2, arr=matrix)
 
     matrix = (np.expand_dims(np.sum(image, axis=2), axis=2))
     matrix = np.where(matrix > 0, [0, 1], [1, 0])
@@ -86,26 +75,6 @@ def read_data():
     mask_dir = (label_path)
 
     # Get the images and their corresponding masks
-    # image_paths = glob.glob(os.path.join(image_dir, '*'))
-    # mask_paths = glob.glob(os.path.join(mask_dir, '*'))
-    # Check that all masks have the same file ending
-    # mask_pattern = re.compile(".*?(\.(tif|tiff|jpg|jpeg|png))")
-    # endings = {}
-    # for mp in mask_paths:
-    #     ending = mask_pattern.match(mp).group(1)
-    #     endings[ending] = True
-    # assert (len(endings.keys()) == 1)
-    # mask_ending = list(endings.keys())[0]
-    #
-    # image_ids = []
-    # mask_names = []
-    #
-    # # Extract mask names
-    # image_pattern = re.compile("(.*?)\.(tif|tiff|jpg|jpeg|png)")
-    # for i in image_paths:
-    #     image_name = image_pattern.match(i).group(1)
-    #     image_ids.append(image_name)
-    #     mask_names.append(os.path.join(mask_dir, (image_name + mask_ending)))
 
     image_paths = sorted(glob.glob(image_path + "*." + "tif"))
     mask_names = sorted(glob.glob(label_path + "*." + "png"))
@@ -116,29 +85,16 @@ def read_data():
 
     return images, masks
 
-def main(start_index=0, plot=True, store_masks=False):
-    results_file = Path("results/BBBC039_LOOCV.csv")
+def main(start_index=0, last_index = 199, filename = None, plot=True, store_masks=False):
+    if filename is None:
+        now = datetime.now()
+        current_dt = now.strftime("%y_%m_%d_%H_%M_%S")
+        filename = "results/" + current_dt + ".csv"
+    results_file = Path(filename)
     if not results_file.is_file():
-        results_file.write_text('index; jaccard; Dice; Adj; Warp\n')
+        results_file.write_text('index;jaccard;Dice;Adj;Warp;jaccard_to;Dice_to;Adj_to;Warp_to\n')
 
     """ Load data """
-    # image_path = "data/BBBC004_v1_images/synthetic_000_images/"
-    # label_path = "data/BBBC004_v1_foreground/synthetic_000_foreground/"
-    # image_path = "data/BBBC004_v1_images/*/"
-    # label_path = "data/BBBC004_v1_foreground/*/"
-    #
-    # file_extension = "tif"
-    #
-    # # inp_dim = 572
-    # # inp_dim = 200
-    # inp_dim = 500
-    #
-    #
-    # file_names = sorted(glob.glob(image_path + "*." + file_extension))
-    # file_names_labels = sorted(glob.glob(label_path + "*." + file_extension))
-    #
-    # print(file_names)
-    # print(file_names_labels)
     print("Start read")
 
     images, labels = read_data()
@@ -146,35 +102,10 @@ def main(start_index=0, plot=True, store_masks=False):
 
     images = [np.expand_dims(image, axis=2)/ max(np.max(image), 255) for image in images]
     labels = [split_into_classes(label[:,:,:2]) for label in labels]
-    # labels = [(label[:,:,:2]) for label in labels]
 
     print(np.array(images).shape)
     print(np.array(labels).shape)
 
-    # print(np.max(images[5]))
-
-    # for i in range((3)):
-    #     plt.matshow(images[i][..., -1])
-    #     plt.show()
-    #     plt.matshow(np.argmax(labels[i], axis=-1), cmap=plt.cm.gray)
-    #     plt.show()
-    #
-    # for i in images:
-    #     print(np.max(i))
-    # print(labels[0])
-    # print(np.sum(labels[0]) / np.max(labels[0]))
-    # non_zero = np.argwhere(labels[0] > 0)
-    # print(non_zero)
-    # print(np.count_nonzero(labels[0]))
-    #
-    # for row in labels[0]:
-    #     for b in row:
-    #         if np.sum(b) > 0:
-    #             print(b)
-
-
-
-    # assert False
 
     for i in range(len(images)):
         images[i] = mirror_pad_image(images[i])
@@ -188,6 +119,8 @@ def main(start_index=0, plot=True, store_masks=False):
 
 
     for test_data_point_index in range(start_index, num_data_points):
+        if test_data_point_index > last_index:
+            break
         print("\nStarted for data_point_index: " + str(test_data_point_index))
 
         images_temp = images.copy()
@@ -220,8 +153,6 @@ def main(start_index=0, plot=True, store_masks=False):
           tf.keras.layers.experimental.preprocessing.RandomRotation(0.2),
         ])
 
-        # image_dataset.shuffle(100, reshuffle_each_iteration=False)
-
         train_dataset = image_dataset.take(160)
         validation_dataset = image_dataset.skip(160)
 
@@ -238,17 +169,26 @@ def main(start_index=0, plot=True, store_masks=False):
                                       num_classes=circles.classes,
                                       layer_depth=3,
                                       filters_root=16)
-        unet.finalize_model(unet_model)
+        unet.finalize_model(unet_model,
+                            dice_coefficient=False,
+                            auc=False,
+                            mean_iou=False) # Don't track so many metrics
 
 
         """Train"""
-        # callback = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True)
-        # trainer = unet.Trainer(checkpoint_callback=False, callbacks=[callback])
-        trainer = unet.Trainer(checkpoint_callback=False)
+        # Disable performance logging & use early stopping
+        es_callback = tf.keras.callbacks.EarlyStopping(
+            monitor='val_loss', 
+            patience=3, 
+            restore_best_weights=True)
+        trainer = unet.Trainer(checkpoint_callback=False,
+                    tensorboard_callback=False,
+                    tensorboard_images_callback=False,
+                    callbacks=[es_callback])
         trainer.fit(unet_model,
                     train_dataset,
                     validation_dataset,
-                    epochs=25,
+                    epochs=40,
                     batch_size=1)
 
 
@@ -265,17 +205,22 @@ def main(start_index=0, plot=True, store_masks=False):
         for i, (image, label) in enumerate(dataset):
             original_images.append(image[..., -1])
             metric_labels.append(np.argmax(label, axis=-1))
-            metric_predictions_unprocessed.append(prediction[i, ...])
+            metric_predictions_unprocessed.append(normalize_output(prediction[i, ...]))
 
 
-        threshold_util = Threshold(metric_labels)
-        best_tau, best_score = threshold_util.get_best_threshold(metric_predictions_unprocessed, min=0, max=2, num_steps=200, metric=0)
+        best_tau, best_score = get_best_threshold(
+            metric_predictions_unprocessed, 
+            metric_labels, 
+            min=0, max=1, num_steps=50, 
+            use_metric=1)
+
+        #best_tau = 0.5 # Use this to not threshold at all, also comment above
         print("Best tau: " + str(best_tau))
         print("Best avg score: " + str(best_score))
-
+ 
         for i in range(len(metric_predictions_unprocessed)):
-            metric_predictions.append(np.argmax(metric_predictions_unprocessed[i] * np.array([[[1, best_tau]]]), axis=-1))
-
+            metric_predictions.append((metric_predictions_unprocessed[i] >= best_tau).astype(int))
+        
         if plot:
             fig, ax = plt.subplots(3, 3, sharex=True, sharey=True, figsize=(8, 8))
 
@@ -291,6 +236,7 @@ def main(start_index=0, plot=True, store_masks=False):
         metric_labels_test = []
         metric_predictions_unprocessed_test = []
         metric_predictions = []
+        metric_predictions_unthresholded = []
 
 
         """Evaluate and print to file"""
@@ -304,25 +250,64 @@ def main(start_index=0, plot=True, store_masks=False):
 
 
         for i in range(len(metric_predictions_unprocessed_test)):
-            metric_predictions.append(np.argmax(metric_predictions_unprocessed_test[i] * np.array([[[1, best_tau]]]), axis=-1))
+            metric_predictions.append((normalize_output(metric_predictions_unprocessed_test[i]) >= best_tau).astype(int))
+            metric_predictions_unthresholded.append((normalize_output(metric_predictions_unprocessed_test[i]) >= 0.5).astype(int))
 
-        quantitative_metrics = Metrics(metric_labels_test, metric_predictions)
+        # Calculate thresholded and unthresholded metrics in parallel
+        parallel_metrics = [
+            Metrics(
+                metric_labels_test, 
+                metric_predictions_unthresholded, 
+                safe=False,
+                parallel=False),
 
-        jaccard_index = quantitative_metrics.jaccard()
-        dice = quantitative_metrics.dice()
-        adj = quantitative_metrics.adj_rand()
-        warping_error = quantitative_metrics.warping_error()
-        #warping_error = [0.1]
+            Metrics(
+                metric_labels_test, 
+                metric_predictions,
+                safe=False,
+                parallel=False)
+        ]
+
+        def f(m):
+            return (
+                m.jaccard()[0],
+                m.dice()[0],
+                m.adj_rand()[0],
+                m.warping_error()[0]
+            )
+        
+        pool = Pool(2)
+        metric_result = pool.map(f, parallel_metrics)
+        
+        jaccard_index = metric_result[0][0]
+        dice = metric_result[0][1]
+        adj = metric_result[0][2]
+        warping_error = metric_result[0][3]
+
+        jaccard_index_to = metric_result[1][0]
+        dice_to = metric_result[1][1]
+        adj_to = metric_result[1][2]
+        warping_error_to = metric_result[1][3]
 
         with results_file.open("a") as f:
-            f.write(str(test_data_point_index) + ";" + str(jaccard_index[0]) + ";" + str(dice[0])
-                    + ";" + str(adj[0]) + ";" + str(warping_error[0]) + "\n")
+            f.write(
+                str(test_data_point_index) + ";" + 
+                str(jaccard_index) + ";" + 
+                str(dice) + ";" + 
+                str(adj) + ";" + 
+                str(warping_error) + ";" +
+                str(jaccard_index_to) + ";" + 
+                str(dice_to) + ";" + 
+                str(adj_to) + ";" + 
+                str(warping_error_to) + "\n"
+            )
 
         print("test_data_point_index: " + str(test_data_point_index))
-        print("Jaccard index: " + str(jaccard_index))
-        print("Dice: " + str(dice))
-        print("Adj: " + str(adj))
-        print("Warping Error: " + str(warping_error))
+        print("Jaccard index: " + str(jaccard_index) + " with threshold optimization: " + str(jaccard_index_to))
+        print("Dice: " + str(dice) + " with threshold optimization: " + str(dice_to))
+        print("Adj: " + str(adj) + " with threshold optimization: " + str(adj_to))
+        print("Warping Error: " + str(warping_error) + " with threshold optimization: " + str(warping_error_to))
+        
 
 
         """Plot predictions"""
@@ -345,4 +330,21 @@ def main(start_index=0, plot=True, store_masks=False):
 
 
 if __name__ == '__main__':
-    main(start_index=0, plot=False, store_masks=False)
+    try:
+        results_file = sys.argv[1]
+    except IndexError:
+        print("No file name given, results file will be given a name automatically")
+        results_file = None
+    try:
+        start_index = int(sys.argv[2])
+    except (IndexError, ValueError):
+        start_index=0
+    try:
+        last_index = int(sys.argv[3])
+    except (IndexError, ValueError):
+        last_index=199
+    main(   start_index=start_index, 
+            last_index = last_index, 
+            filename = results_file,
+            plot=False, 
+            store_masks=False)
