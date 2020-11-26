@@ -24,7 +24,7 @@ def plot_for_qualitative_eval(image, ground_truth, prediction, data_point_index=
 
     union_mask = ground_truth * prediction
     true_mask = (ground_truth - union_mask) * 0.3
-    pred_mask = (ground_truth - union_mask) * 0.6
+    pred_mask = (prediction - union_mask) * 0.6
     ax[1].matshow(union_mask + true_mask + pred_mask, cmap=custom_map_0)
     ax[1].set_title("True and predicted mask", fontsize=48)
     ax[1].set_axis_off()
