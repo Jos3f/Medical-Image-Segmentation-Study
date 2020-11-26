@@ -214,20 +214,22 @@ def main(start_index=0, last_index = 99, filename=None, plot_validation=False, p
 
 
         """Train"""
-        # Disable performance logging & use early stopping
-        es_callback = tf.keras.callbacks.EarlyStopping(
-            monitor='val_loss', 
-            patience=3, 
-            restore_best_weights=True)
+        # Use early stopping or not?
+        # es_callback = tf.keras.callbacks.EarlyStopping(
+        #     monitor='val_loss', 
+        #     patience=6, 
+        #     restore_best_weights=True)
         trainer = unet.Trainer(checkpoint_callback=False,
                     tensorboard_callback=False,
                     tensorboard_images_callback=False,
-                    callbacks=[es_callback])
+                    #callbacks=[es_callback]
+        )
         trainer.fit(unet_model,
                     train_dataset,
                     validation_dataset,
                     epochs=40,
-                    batch_size=1)
+                    batch_size=2
+        )
 
         """Calculate best amplification"""
         prediction = unet_model.predict(validation_dataset.batch(batch_size=1))

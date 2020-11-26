@@ -10,9 +10,11 @@ import random
 from pathlib import Path
 import re
 import sys
+from datetime import datetime
 from multiprocessing.dummy import Pool
 
 # The H4ck3rs solution when proper organization in modules is too daunting
+# N.b. this requires everything to be run from the Unet directory 
 sys.path.append("../metrics")
 from metrics import Metrics
 from threshold_utils import get_best_threshold, normalize_output
@@ -176,20 +178,21 @@ def main(start_index=0, last_index = 199, filename = None, plot=True, store_mask
 
 
         """Train"""
-        # Disable performance logging & use early stopping
-        es_callback = tf.keras.callbacks.EarlyStopping(
-            monitor='val_loss', 
-            patience=3, 
-            restore_best_weights=True)
+        # Use early stopping or not?
+        # es_callback = tf.keras.callbacks.EarlyStopping(
+        #     monitor='val_loss', 
+        #     patience=6, 
+        #     restore_best_weights=True)
         trainer = unet.Trainer(checkpoint_callback=False,
                     tensorboard_callback=False,
                     tensorboard_images_callback=False,
-                    callbacks=[es_callback])
+                    #callbacks=[es_callback]
+        )
         trainer.fit(unet_model,
                     train_dataset,
                     validation_dataset,
                     epochs=40,
-                    batch_size=1)
+                    batch_size=2)
 
 
         """Calculate best amplification"""
