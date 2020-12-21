@@ -105,8 +105,11 @@ def main(start_index=0, last_index = 99, filename=None, plot_validation=False, p
         results_file.write_text('index;jaccard;Dice;Adj;Warp;jaccard_to;Dice_to;Adj_to;Warp_to\n')
 
     """ Load data """
-    image_path = "data/BBBC004_v1_images/*/"
-    label_path = "data/BBBC004_v1_foreground/*/"
+    #image_path = "data/BBBC004_v1_images/*/"
+    #label_path = "data/BBBC004_v1_foreground/*/"
+    image_path = "../datasets/BBBC004/images/all/"
+    label_path = "../datasets/BBBC004/masks/all/"
+
 
     file_extension = "tif"
 
@@ -118,12 +121,24 @@ def main(start_index=0, last_index = 99, filename=None, plot_validation=False, p
     print(file_names)
     print(file_names_labels)
 
+    # Determine largest and smallest pixel values in the dataset
+    min_val = float('inf')
+    max_val = float('-inf')
+    for filename in file_names:
+        img = plt.imread(filename)
+        if np.min(img) < min_val:
+            min_val = np.min(img)
+        if np.max(img) > max_val:
+            max_val = np.max(img)
+        
     images = []
     for file in file_names:
         if file_extension == "tif":
             images.append(tf.convert_to_tensor(np.expand_dims(plt.imread(file), axis=2)))  # For .tif
-            images[-1] = images[-1] / 255  # Normalize
+            #images[-1] = images[-1] / 255  # Normalize
+            images[-1] = (images[-1] - min_val) / (max_val - min_val)
             images[-1] = tf.image.resize(images[-1], [inp_dim, inp_dim], preserve_aspect_ratio=True, method='bilinear')
+            #print(np.min(images[-1]), np.max(images[-1]))
         elif file_extension == "png":
             images.append(tf.convert_to_tensor(plt.imread(file)[:, :, :3]))  # For .png
             images[-1] = tf.image.resize(images[-1], [inp_dim, inp_dim], preserve_aspect_ratio=True, method='bilinear')
@@ -226,7 +241,7 @@ def main(start_index=0, last_index = 99, filename=None, plot_validation=False, p
         )
         trainer.fit(unet_model,
                     train_dataset,
-                    validation_dataset,
+                    #validation_dataset,
                     epochs=40,
                     batch_size=2
         )
