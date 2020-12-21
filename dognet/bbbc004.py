@@ -11,12 +11,12 @@ sys.path.append("../metrics")
 from metrics import Metrics
 
 sys.path.append("../unet")
-from threshold_utils import get_best_threshold
+from threshold_utils import get_best_threshold, normalize_output
 
 import torch
 from pathlib import Path
 from multiprocessing.dummy import Pool
-
+import matplotlib.pyplot as plt
 
 
 def inference(net,image,get_inter = False):
@@ -31,30 +31,30 @@ def createDataset():
   train_images = []
   train_labels = []
 
-  pathImages = "./BBBC004/images/"
-  pathMasks = "./BBBC004/masks/"
+  pathImages = "../datasets/BBBC004/images/"
+  pathMasks = "../datasets/BBBC004/masks/"
 
   folders = sorted(os.listdir(pathImages))
   for folder in folders:
     filenames = sorted(os.listdir(pathImages+folder))
+    # Determine the max / min of the dataset
+    max_val = float('-inf')
+    min_val = float('inf')
     for filename in filenames:
+        img = plt.imread(pathImages+ folder + "/" + filename)
+        if np.max(img) > max_val:
+            max_val = np.max(img)
+        if np.min(img) < min_val:
+            min_val = np.min(img)
+
+    for i, filename in enumerate(filenames):
+        print(filename, i)
         # load image
-        orig_img = skimage.io.imread(pathImages+ folder + "/" + filename)
 
-        # normalize to [0,1]
-        percentile = 99.9
-        high = np.percentile(orig_img, percentile)
-        low = np.percentile(orig_img, 100-percentile)
+        img = plt.imread(pathImages+ folder + "/" + filename)
+        img = (img - max_val) / (max_val - min_val)
 
-        img = np.minimum(high, orig_img)
-        img = np.maximum(low, img)
-
-        img = (img - low) / (high - low) # gives float64, thus cast to 8 bit later
-        img = skimage.img_as_ubyte(img)
-
-
-        #load annotation
-        orig_masks = skimage.io.imread(pathMasks+ folder[:-6]+ "foreground/" + filename[:-8]+".tif")
+        orig_masks = skimage.io.imread(pathMasks + "all/" + filename[:-4]+".tif")
         orig_masks = orig_masks[:,:,2]
 
 
@@ -83,6 +83,8 @@ def train_models(train_images, train_labels, validationsize, filename = None):
     validationsize = validationsize - 1
 
     for index, (train_index, test_index) in enumerate(loo.split(train_images)):
+      if index != 98:
+          continue
       run = True
       print(index)
       while run:
@@ -98,7 +100,14 @@ def train_models(train_images, train_labels, validationsize, filename = None):
         net = dognet.SimpleIsotropic(1,15,5).to(device)
         net.weights_init()
 
-        net, errors = dognet.train_routine(net.cuda(),dognet.create_generator1C(trainingimages,traininglabels, n=total_splits),n_iter=3000,margin=5,loss='softdice',lr=0.0001)
+        net, errors = dognet.train_routine(
+            net.cuda(),
+            dognet.create_generator1C(trainingimages,traininglabels, n=total_splits),
+            n_iter=3000,
+            margin=5,
+            loss='softdice',
+            lr=0.0001
+        )
 
         print("The mean loss of last 100 step:",np.mean(errors[-100:]))
         if net != None:
@@ -108,30 +117,28 @@ def train_models(train_images, train_labels, validationsize, filename = None):
                 pred = inference(net,x[np.newaxis, :],False)[0][0]
                 pred_background = np.ones(pred.shape) - pred
                 pred_final = np.stack((pred_background,pred),axis=-1)
-                metric_predictions_unprocessed.append(pred_final)
+                metric_predictions_unprocessed.append(normalize_output(pred_final))
 
             best_tau, best_score = get_best_threshold(
-            metric_predictions_unprocessed,
-            validationlabels,
-            min=0, max=1, num_steps=50,
-            use_metric=1)
-
+                metric_predictions_unprocessed,
+                validationlabels,
+                min=0, max=1, num_steps=50,
+                use_metric=1
+            )
 
             print("Best tau: " + str(best_tau))
             print("Best avg score: " + str(best_score))
-
-
-
 
             #Evaluate on testdata
             test_images = train_images[test_index[0]]
             metric_labels_test = [train_labels[test_index[0]]]
 
             pred = inference(net,test_images[np.newaxis, :],False)[0][0]
-
-
+            print("Pred shape:", pred.shape)
             metric_predictions = [(pred >= best_tau).astype(int)]
             metric_predictions_unthresholded = [(pred >= 0.5).astype(int)]
+
+            #plt.imsave("sample79_98.png", metric_predictions[0], cmap=plt.get_cmap('binary_r'))
 
             parallel_metrics = [
             Metrics(

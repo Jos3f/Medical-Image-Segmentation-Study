@@ -5,19 +5,17 @@ import skimage.io
 import sys
 from sklearn.model_selection import LeaveOneOut
 from datetime import datetime
-
 sys.path.append("../metrics")
 
 from metrics import Metrics
 
 sys.path.append("../unet")
-from threshold_utils import get_best_threshold
+from threshold_utils import get_best_threshold, normalize_output
 
 import torch
 from pathlib import Path
 from multiprocessing.dummy import Pool
-
-
+import matplotlib.pyplot as plt
 
 def inference(net,image,get_inter = False):
     x = np.expand_dims(image,0)
@@ -27,46 +25,42 @@ def inference(net,image,get_inter = False):
         return res.data.cpu().numpy(),inter.data.cpu().numpy()
     return res.data.cpu().numpy()
 
-
-
 def createDataset(filelist):
-  train_images = []
-  train_labels = []
+    train_images = []
+    train_labels = []
 
-  pathImages = "./BBBC039/images/"
-  pathMasks = "./BBBC039/masks/"
+    pathImages = "../datasets/BBBC039/images/"
+    pathMasks = "../datasets/BBBC039/masks/"
+    # Determine the max / min of the dataset
+    max_val = float('-inf')
+    min_val = float('inf')
+    for filename in sorted(filelist):
+        img = plt.imread(pathImages + filename[:-3]+"tif")
+        if np.max(img) > max_val:
+            max_val = np.max(img)
+        if np.min(img) < min_val:
+            min_val = np.min(img)
 
-
-  for filename in filelist:
+    for i, filename in enumerate(sorted(filelist)):
+        if i == 110:
+            print(filename)
 
       # load image
-      orig_img = skimage.io.imread(pathImages + filename[:-3]+"tif")
 
-      # normalize to [0,1]
-      percentile = 99.9
-      high = np.percentile(orig_img, percentile)
-      low = np.percentile(orig_img, 100-percentile)
-
-      img = np.minimum(high, orig_img)
-      img = np.maximum(low, img)
-
-      img = (img - low) / (high - low) # gives float64, thus cast to 8 bit later
-      img = skimage.img_as_ubyte(img)
+        img = plt.imread(pathImages + filename[:-3]+"tif")
+        img = (img - min_val) / (max_val - min_val)    
+        #load annotation
+        orig_masks = skimage.io.imread(pathMasks + filename)
+        orig_masks = orig_masks[:,:,0]
 
 
-      #load annotation
-      orig_masks = skimage.io.imread(pathMasks + filename)
-      orig_masks = orig_masks[:,:,0]
+        orig_masks[orig_masks > 1] = 1 
 
+        #Append to list
+        train_images.append(img)
+        train_labels.append(orig_masks)
 
-      orig_masks[orig_masks > 1] = 1
-
-
-      #Append to list
-      train_images.append(img)
-      train_labels.append(orig_masks)
-
-  return train_images, train_labels
+    return train_images, train_labels
 
 def train_models(train_images, train_labels, validationsize, filename = None):
     if filename is None:
@@ -85,6 +79,8 @@ def train_models(train_images, train_labels, validationsize, filename = None):
     validationsize = validationsize - 1
 
     for index, (train_index, test_index) in enumerate(loo.split(train_images)):
+      if index != 110:
+          continue    
       run = True
       print(index)
       while run:
@@ -100,7 +96,14 @@ def train_models(train_images, train_labels, validationsize, filename = None):
         net = dognet.SimpleIsotropic(1,15,5).to(device)
         net.weights_init()
 
-        net, errors = dognet.train_routine(net.cuda(),dognet.create_generator1C(trainingimages,traininglabels, n=total_splits),n_iter=3000,margin=5,loss='softdice',lr=0.0001)
+        net, errors = dognet.train_routine(
+            net.cuda(),
+            dognet.create_generator1C(trainingimages,traininglabels, n=total_splits),
+            n_iter=3000,
+            margin=5,
+            loss='softdice',
+            lr=0.0001
+        )
 
         print("The mean loss of last 100 step:",np.mean(errors[-100:]))
         if net != None:
@@ -110,20 +113,19 @@ def train_models(train_images, train_labels, validationsize, filename = None):
                 pred = inference(net,x[np.newaxis, :],False)[0][0]
                 pred_background = np.ones(pred.shape) - pred
                 pred_final = np.stack((pred_background,pred),axis=-1)
-                metric_predictions_unprocessed.append(pred_final)
+                metric_predictions_unprocessed.append(normalize_output(pred_final))
 
 
             best_tau, best_score = get_best_threshold(
-            metric_predictions_unprocessed,
-            validationlabels,
-            min=0, max=1, num_steps=50,
-            use_metric=1)
+                metric_predictions_unprocessed,
+                validationlabels,
+                min=0, max=1, num_steps=50,
+                use_metric=1
+            )
 
 
             print("Best tau: " + str(best_tau))
             print("Best avg score: " + str(best_score))
-
-
 
 
             #Evaluate on testdata
@@ -135,6 +137,8 @@ def train_models(train_images, train_labels, validationsize, filename = None):
 
             metric_predictions = [(pred >= best_tau).astype(int)]
             metric_predictions_unthresholded = [(pred >= 0.5).astype(int)]
+
+            plt.imsave("sample110.png", metric_predictions[0], cmap=plt.get_cmap('binary_r'))
 
             parallel_metrics = [
             Metrics(
@@ -158,7 +162,7 @@ def train_models(train_images, train_labels, validationsize, filename = None):
                     m.warping_error()[0]
                 )
 
-            pool = Pool(2)
+            pool = Pool(4)
             metric_result = pool.map(f, parallel_metrics)
 
             jaccard_index = metric_result[0][0]
@@ -205,10 +209,7 @@ if __name__ == "__main__":
 
     filenames = []
 
-    for file in ["training.txt","validation.txt","test.txt"]:
-      with open("./BBBC039/metadata/"+file) as f:
-          filenames = filenames + [x.strip() for x in f.readlines()]
-
+    filenames = os.listdir("../datasets/BBBC039/masks/")
 
     filenames = sorted(filenames)
 
