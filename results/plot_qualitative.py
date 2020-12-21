@@ -8,6 +8,15 @@ def plot_for_qualitative_eval(image, ground_truth, prediction, data_point_index=
     """Only tested for 039"""
     fig, ax = plt.subplots(1, 2, figsize=(34, 22))
     fig.suptitle("Test point: " + str(data_point_index), fontsize=72)
+
+    if len(ground_truth.shape) > 2:
+        ground_truth = np.sum(ground_truth[:, :, :3], axis=2)
+        ground_truth = (ground_truth > 0).astype(int)
+    if len(prediction.shape) > 2:
+        prediction = np.sum(prediction[:, :, :3], axis=2)
+        prediction = (prediction > 0).astype(int)
+        
+    print(np.count_nonzero(prediction != ground_truth))
     # Custom cmap
     custom_map = plt.cm.gray(np.linspace(0, 1, 256))
     true_color = np.array([0, 1, 0, 1])
