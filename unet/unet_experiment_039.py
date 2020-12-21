@@ -69,9 +69,10 @@ def binarize(image):
     return (np.linalg.norm(image[:, :, :3], axis=(2)) != 0).astype(int)
 
 def read_data():
-    image_path = "data/BBBC039/images/"
-    label_path = "data/BBBC039/masks/"
-
+    #image_path = "data/BBBC039/images/"
+    #label_path = "data/BBBC039/masks/"
+    image_path = "../datasets/BBBC039/images/"
+    label_path = "../datasets/BBBC039/masks/"
 
     image_dir = (image_path)
     mask_dir = (label_path)
@@ -80,6 +81,7 @@ def read_data():
 
     image_paths = sorted(glob.glob(image_path + "*." + "tif"))
     mask_names = sorted(glob.glob(label_path + "*." + "png"))
+
 
     images = [plt.imread(image) for image in image_paths]
     masks = [plt.imread(mask) for mask in mask_names]
@@ -102,9 +104,19 @@ def main(start_index=0, last_index = 199, filename = None, plot=True, store_mask
     images, labels = read_data()
     print("Done read")
 
-    images = [np.expand_dims(image, axis=2)/ max(np.max(image), 255) for image in images]
+    min_val = float('inf')
+    max_val = float('-inf')
+    for img in images:
+        if np.min(img) < min_val:
+            min_val = np.min(img)
+        if np.max(img) > max_val:
+            max_val = np.max(img)
+    print(min_val, max_val)
+    #images = [np.expand_dims(image, axis=2)/ max(np.max(image), 255) for image in images]
+    # Normalize relative to entire dataset
+    images = [(np.expand_dims(image, axis=2) - min_val) / (max_val - min_val) for image in images]
     labels = [split_into_classes(label[:,:,:2]) for label in labels]
-
+    
     print(np.array(images).shape)
     print(np.array(labels).shape)
 
@@ -190,7 +202,7 @@ def main(start_index=0, last_index = 199, filename = None, plot=True, store_mask
         )
         trainer.fit(unet_model,
                     train_dataset,
-                    validation_dataset,
+                    #validation_dataset,
                     epochs=40,
                     batch_size=2)
 

@@ -26,34 +26,11 @@ def get_best_threshold(training_outputs, true_labels, min=1, max=10, num_steps=1
 
     thresholds = [min + i * (max-min) / num_steps for i in range(num_steps)]
     print("Evaluating", num_steps, "thresholds...", end=' ', flush=True)
-    # def score_from_t(tau):
-    #     step = int((num_steps * tau - min) / (max-min))
-    #     #print("\rEvaluating threshold", step, "/", num_steps, end='', flush=True)
-    #     #print(step, end=',', flush=True)
 
-    #     temp_predictions = []
-    #     for j in range(len(training_outputs)):
-    #         temp_predictions.append(training_outputs[j] * np.array([[[1, tau]]]))
-    #         temp_predictions[j] = np.argmax(temp_predictions[j], axis=-1)
-    #     metric = Metrics(true_labels, temp_predictions, safe=False, parallel=False)
-
-
-    #     if use_metric == 1:
-    #         scores = metric.adj_rand()
-    #     elif use_metric == 3:
-    #         scores = metric.warping_error()
-    #     else:
-    #         scores = metric.jaccard()
-
-    #     avg_score = sum(scores) / len(scores)
-    #     return avg_score
     f = partial(score_from_t, true_labels, training_outputs, min, max, num_steps, use_metric)
     with Pool(processes=4) as pool:
-        #scores = np.array(pool.map(score_from_t, thresholds))
-        #print("Mapping to all thresholds")
         scores = np.array(pool.map(f, thresholds))
-    #pool.close()
-    #pool.join()
+
         if use_metric == 3:
             idx = np.argmin(scores)
         else:
@@ -74,8 +51,6 @@ def score_from_t(true_labels, training_outputs, start, stop, num_steps, use_metr
     temp_predictions = []
     #print("Appending")
     for j in range(len(training_outputs)):
-        #temp_predictions.append(training_outputs[j] * np.array([[[1, tau]]]))
-        #temp_predictions[j] = np.argmax(temp_predictions[j], axis=-1)
         temp_predictions.append((training_outputs[j] >= tau).astype(int))
     #print("Creating metric object")
     metric = Metrics(true_labels, temp_predictions, safe=False, parallel=False)
