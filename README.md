@@ -1,4 +1,6 @@
 # Intensity-based-clustering-study
+This is the official repository for the project done by 12 group in the course DD2430 (Project Course in Data Science) at KTH. This project was done semester Autum 2020.
+
 Datasets used in this study are the following:
 1. BBBC039 https://bbbc.broadinstitute.org/BBBC039
 2. BBBC004 https://bbbc.broadinstitute.org/BBBC004
