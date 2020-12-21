@@ -57,9 +57,10 @@ class FCM:
         images, 
         num_clusters, 
         m = 2, p = 2, q = 2, 
-        epislon = 1e-5, 
+        epislon = 1e-4, 
         window_size = 3, 
-        initialization = 'random'):
+        initialization = 'random',
+        normalize = True):
 
         # Some sanity checks
         assert(isinstance(images, list))
@@ -80,6 +81,7 @@ class FCM:
         self.__epsilon = epislon
         self.__window_size = window_size
         self.__div_correction = 1e-20
+        self.__normalize = normalize
 
     def cluster(self):
         """
@@ -159,10 +161,11 @@ class FCM:
         data_shape = image.shape[2:]
         
         # Normalize image
-        image_min = image.min(axis=(0, 1), keepdims=True)
-        image_max = image.max(axis=(0, 1), keepdims=True)
-        normalized_image = (image - image_min) / (image_max - image_min) 
-        image = normalized_image
+        if self.__normalize:
+            image_min = image.min(axis=(0, 1), keepdims=True)
+            image_max = image.max(axis=(0, 1), keepdims=True)
+            normalized_image = (image - image_min) / (image_max - image_min) 
+            image = normalized_image
         
         # Initial membership, doesn't need to be initialized
         u = np.zeros(shape=(self.__num_clusters, *image_dimensions))
