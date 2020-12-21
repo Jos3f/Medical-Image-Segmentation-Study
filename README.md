@@ -3,7 +3,7 @@ Datasets used in this study are the following:
 1. BBBC039 https://bbbc.broadinstitute.org/BBBC039
 2. BBBC004 https://bbbc.broadinstitute.org/BBBC004
 
-To run the experiments the dataset should be download and added to a folder named datasets.
+To run the experiments the dataset should be download and added to a folder named datasets. A GPU which is compatible with pytorch and tensorflow is also needed.
 
 ## DoGNET
 
