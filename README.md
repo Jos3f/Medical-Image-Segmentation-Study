@@ -1,4 +1,4 @@
-# Intensity-based-clustering-study
+# Medical Image Segmentation (fluorescence microscopy)
 This is the official repository for the project done by 12 group in the course DD2430 (Project Course in Data Science) at KTH. This project was done Autum 2020.
 
 Datasets used in this study are the following:
